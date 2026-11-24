@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Citylife — LifeAfterLogic</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:#101211;color:#eee;font:12px/1.4 system-ui,sans-serif}main{position:fixed;inset:0;display:grid;place-items:center;overflow:hidden}canvas{width:100%;height:100%;object-fit:cover;display:block}#neural{display:none}header,footer{position:fixed;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;z-index:2;pointer-events:none;text-shadow:0 1px 5px #000}header{top:0}footer{bottom:0;align-items:end}header>* ,footer>*{pointer-events:auto}strong{font-size:15px;letter-spacing:.07em}small{display:block;opacity:.8}button,label.action{display:inline-block;border:1px solid #ffffff70;border-radius:2px;color:#fff;background:#141615b8;padding:7px 10px;cursor:pointer;font:inherit}button:hover,label.action:hover{background:#333}input[type=file]{display:none}a{color:inherit}#controls{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end}#notice{position:absolute;max-width:320px;text-align:center;padding:24px;background:#121514e8;z-index:3}#notice[hidden]{display:none}@media(max-width:600px){header,footer{padding:10px}footer{flex-wrap:wrap}#controls{justify-content:flex-start}small{font-size:10px}}
+</style></head><body>
+<main><canvas id="city" aria-label="Evolving photographic city"></canvas><canvas id="neural" aria-label="Neural city texture"></canvas><div id="notice">Loading city photograph…</div></main>
+<header><div><strong>CITYLIFE</strong><small>LifeAfterLogic / experiment 001</small></div><div id="mode">Photographic growth study</div></header>
+<footer><div><small id="stats">Autonomous, local simulation</small><small id="credit"><a href="https://commons.wikimedia.org/wiki/File:Sham_shui_po_day01.JPG" target="_blank" rel="noopener">J. Carmichael / Sham Shui Po / public domain</a></small></div><div id="controls"><button id="pause">Pause</button><button id="reset">New seed</button><label class="action">Photo<input id="photo" type="file" accept="image/*"></label><label class="action">Neural weights<input id="weights" type="file" accept=".json,application/json"></label></div></footer>
+<script>
+'use strict';
+const PHOTO='https://upload.wikimedia.org/wikipedia/commons/f/f2/Sham_shui_po_day01.JPG';
+const city=document.querySelector('#city'), neural=document.querySelector('#neural'), ctx=city.getContext('2d',{alpha:false}), notice=document.querySelector('#notice'), stats=document.querySelector('#stats'), mode=document.querySelector('#mode');
+const source=document.createElement('canvas'), sc=source.getContext('2d',{alpha:false});
+let ready=false, paused=false, engine=null, last=0, elapsed=0, tick=0, generation=0;
+let tiles=[], cols=0, rows=0, tw=0, th=0, sx=0,sy=0,sw=0,sh=0;
+
+const rand=(a,b)=>a+Math.random()*(b-a), clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+function resize(){
+ const dpr=Math.min(devicePixelRatio||1,innerWidth<700?1.5:2);
+ city.width=Math.min(1920,Math.round(innerWidth*dpr)); city.height=Math.round(city.width*innerHeight/innerWidth);
+ if(city.height>1920){city.height=1920;city.width=Math.round(1920*innerWidth/innerHeight)}
+ if(ready) init();
+ if(engine) engine.resize();
+}
+function init(){
+ // Crop away the horizon; the city's oblique perspective is retained.
+ const a=city.width/city.height, usableY=source.height*.28, usableH=source.height*.72;
+ sw=Math.min(source.width,usableH*a);sh=sw/a;sx=(source.width-sw)*.5;sy=usableY+(usableH-sh)*.5;
+ cols=innerWidth<700?18:27;rows=Math.max(8,Math.round(cols/a*1.2));tw=city.width/cols;th=city.height/rows;
+ tiles=Array.from({length:cols*rows},(_,i)=>({x:i%cols,y:Math.floor(i/cols),mix:0,from:null,to:null,age:0,energy:0,target:0}));
+ generation=0;tick=0;elapsed=0;
+}
+function loadPhoto(url,custom=false){
+ const im=new Image(); im.onload=()=>{source.width=im.naturalWidth;source.height=im.naturalHeight;sc.drawImage(im,0,0);ready=true;notice.hidden=true;init();if(custom)document.querySelector('#credit').textContent='Visitor supplied photograph';};
+ im.onerror=()=>{notice.hidden=false;notice.textContent='Photo could not load. Choose a local city photograph using Photo below.'};
+ im.src=url;
+}
+function neighbours(t){const n=[];if(t.x>0)n.push(tiles[t.y*cols+t.x-1]);if(t.x<cols-1)n.push(tiles[t.y*cols+t.x+1]);if(t.y>0)n.push(tiles[(t.y-1)*cols+t.x]);if(t.y<rows-1)n.push(tiles[(t.y+1)*cols+t.x]);return n}
+function fragment(t,parent){
+ // Keep source and destination elevations similar; no arbitrary rotations or warping.
+ const x=t.x/cols, y=t.y/rows;
+ if(parent&&Math.random()<.72)return {u:clamp(parent.u+(t.x-parent.x)/cols+rand(-.04,.04),0,.96),v:clamp(parent.v+(t.y-parent.y)/rows+rand(-.02,.02),0,.96),x:t.x,y:t.y,scale:parent.scale,lift:parent.lift,life:rand(10,30)};
+ return {u:clamp(x+rand(-.28,.28),0,.96),v:clamp(y+rand(-.15,.15),0,.96),x:t.x,y:t.y,scale:rand(.7,1.65),lift:rand(.08,.48),life:rand(12,38)};
+}
+function evolve(){
+ generation++;
+ // Persistent local colonies spread from neighbours, compete and age out.
+ const decisions=[];
+ for(const t of tiles){
+ const n=neighbours(t), active=n.filter(q=>q.to&&q.mix>.72), pressure=active.length/n.length;
+ t.energy=clamp(t.energy*.88+pressure*.20+rand(-.04,.04),0,1);
+ if(t.mix<.99&&t.from!==t.to)continue;
+ if(t.to&&t.age>t.to.life&&Math.random()<.12){decisions.push([t,null]);continue}
+ if(!t.to&&Math.random()<(.002+t.energy*.075)){const p=active.length?active[Math.floor(Math.random()*active.length)].to:null;decisions.push([t,fragment(t,p)])}
+ else if(t.to&&t.age>6&&Math.random()<.004)decisions.push([t,fragment(t,null)]);
+ }
+ for(const [t,p] of decisions){t.from=t.to;t.to=p;t.mix=0;t.age=0}
+}
+function paint(t,p,opacity){
+ if(!p||opacity<.001)return;
+ // Feather neighbouring photographic fragments, retaining original windows and roof details.
+ const w=Math.ceil(tw*1.36),h=Math.ceil(th*1.38), padX=(w-tw)/2,padY=(h-th)/2;
+ if(!p.stamp){
+ const stamp=document.createElement('canvas');stamp.width=w;stamp.height=h;const st=stamp.getContext('2d');
+ st.globalCompositeOperation='source-over';st.clearRect(0,0,w,h);
+ const pw=Math.min(sw,sw/cols*1.36*p.scale),ph=Math.min(sh,sh/rows*1.38*p.scale);
+ const px=clamp(sx+p.u*sw-pw*.5,sx,sx+sw-pw),py=clamp(sy+p.v*sh-ph*.5,sy,sy+sh-ph);
+ st.drawImage(source,px,py,pw,ph,0,0,w,h);
+ st.globalCompositeOperation='destination-in';
+ let g=st.createLinearGradient(0,0,w,0);g.addColorStop(0,'transparent');g.addColorStop(.14,'black');g.addColorStop(.86,'black');g.addColorStop(1,'transparent');st.fillStyle=g;st.fillRect(0,0,w,h);
+ g=st.createLinearGradient(0,0,0,h);g.addColorStop(0,'transparent');g.addColorStop(.16,'black');g.addColorStop(.84,'black');g.addColorStop(1,'transparent');st.fillStyle=g;st.fillRect(0,0,w,h);
+ st.globalCompositeOperation='source-over';p.stamp=stamp;}
+ ctx.globalAlpha=opacity*.98;ctx.drawImage(p.stamp,t.x*tw-padX,t.y*th-padY);ctx.globalAlpha=1;
+}
+function draw(dt){
+ if(!ready)return;
+ elapsed+=dt;tick+=dt;
+ if(tick>.32){tick-=.32;evolve()}
+ ctx.drawImage(source,sx,sy,sw,sh,0,0,city.width,city.height);
+ let count=0;
+ for(const t of tiles){
+ t.age+=dt;t.mix=Math.min(1,t.mix+dt/2.8);if(t.mix===1)t.from=t.to;const a=t.mix*t.mix*(3-2*t.mix);
+ if(t.from!==t.to&&a<1)paint(t,t.from,1-a);
+ paint(t,t.to,a);
+ if(t.to)count++;
+ }
+ if(generation%3===0)stats.textContent=count+' / '+tiles.length+' active regions · live · generation '+generation;
+}
+function frame(now){
+ const dt=Math.min(.06,(now-(last||now))/1000);last=now;
+ if(!paused&&!document.hidden){if(engine)engine.step(now);else draw(dt)}
+ requestAnimationFrame(frame);
+}
+city.addEventListener('pointerdown',e=>{
+ if(!ready)return;
+ const x=clamp(Math.floor(e.clientX/innerWidth*cols),0,cols-1),y=clamp(Math.floor(e.clientY/innerHeight*rows),0,rows-1);
+ const t=tiles[y*cols+x];t.from=t.to;t.to=fragment(t,null);t.mix=0;t.age=0;
+});
+document.querySelector('#pause').onclick=e=>{paused=!paused;e.target.textContent=paused?'Resume':'Pause'};
+document.querySelector('#reset').onclick=()=>{if(engine)engine.seed();else if(ready)init()};
+document.querySelector('#photo').onchange=e=>{const f=e.target.files[0];if(!f)return;if(engine){engine.destroy();engine=null;neural.style.display='none';city.style.display='block';mode.textContent='Photographic growth study'}const u=URL.createObjectURL(f);loadPhoto(u,true)};
+document.querySelector('#weights').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;const weights=JSON.parse(await f.text());if(engine)engine.destroy();engine=new NeuralCity(neural,weights);city.style.display='none';neural.style.display='block';notice.hidden=true;mode.textContent='Learned neural texture / experimental';}catch(err){engine=null;neural.style.display='none';city.style.display='block';notice.hidden=false;notice.textContent='Neural mode: '+err.message;console.error(err)}};
+window.addEventListener('resize',resize);
+resize();loadPhoto(PHOTO);requestAnimationFrame(frame);
+</script>
+<script src="neural.js"></script>
+</body></html>
