@@ -33,7 +33,7 @@ class CitySimulation{
  }
  trigger(i,j){
   const r=this.r;
-  if(i===undefined){i=Math.floor(between(r,4,this.size-4));j=Math.floor(between(r,4,this.size-4))}
+  if(i===undefined){i=Math.floor(between(r,this.size*.27,this.size*.73));j=Math.floor(between(r,this.size*.27,this.size*.73))}
   this.events.push({i,j,age:0,life:between(r,8,22),radius:between(r,3,8),kind:Math.floor(r()*5),strength:between(r,.55,1)});
   if(this.events.length>7)this.events.shift();
  }
@@ -144,6 +144,7 @@ class CityRenderer{
  setPhoto(im){this.photo=im;this.textures()}
  buildGround(){
   const g=this.ground.getContext('2d'),W=this.W,H=this.H,r=rng(this.sim.seed^1234);
+  this.visible=this.sim.lots.filter(b=>{const p=this.project(b.x+b.w/2,b.y+b.d/2,0);return p[0]>-this.s*3&&p[0]<W+this.s*3&&p[1]>-this.s*2&&p[1]<H+this.s*10});
   g.fillStyle='#797d73';g.fillRect(0,0,W,H);
   const ax=this.sim.ax,ay=this.sim.ay,minX=ax[0].start-1,maxX=ax.at(-1).start+ax.at(-1).w+1,minY=ay[0].start-1,maxY=ay.at(-1).start+ay.at(-1).w+1;
   const quad=(x,y,w,h,c)=>this.poly(g,[this.project(x,y),this.project(x+w,y),this.project(x+w,y+h),this.project(x,y+h)],c);
@@ -182,12 +183,12 @@ class CityRenderer{
  draw(){
   const g=this.ctx;g.setTransform(1,0,0,1,0,0);g.drawImage(this.ground,0,0);
   // Stable directional shadows, painted before geometry.
-  for(const b of this.sim.lots){if(b.h<.03)continue;
+  for(const b of this.visible){if(b.h<.03)continue;
    const x=b.x,y=b.y,w=b.w,d=b.d,dx=b.h*.24,dy=b.h*.16;
    const p=this.project(x,y),q=this.project(x+w+dx,y+dy),r=this.project(x+w+dx,y+d+dy),t=this.project(x+dx,y+d+dy);
    this.poly(g,[p,q,r,t],'rgba(27,31,29,.17)');
   }
-  for(const b of this.sim.lots)this.drawBuilding(b);
+  for(const b of this.visible)this.drawBuilding(b);
   const grad=g.createLinearGradient(0,0,0,this.H);grad.addColorStop(0,'rgba(209,214,204,.15)');grad.addColorStop(.6,'rgba(209,214,204,0)');g.fillStyle=grad;g.fillRect(0,0,this.W,this.H);
  }
  pick(x,y){
