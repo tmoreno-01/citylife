@@ -13,7 +13,7 @@ const city=document.querySelector('#city'), neural=document.querySelector('#neur
 const source=document.createElement('canvas'), sc=source.getContext('2d',{alpha:false});
 let ready=false, paused=false, engine=null, last=0, elapsed=0, tick=0, generation=0;
 let tiles=[], cols=0, rows=0, tw=0, th=0, sx=0,sy=0,sw=0,sh=0;
-const stamp=document.createElement('canvas'), st=stamp.getContext('2d');
+
 const rand=(a,b)=>a+Math.random()*(b-a), clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 function resize(){
  const dpr=Math.min(devicePixelRatio||1,innerWidth<700?1.5:2);
@@ -60,7 +60,8 @@ function paint(t,p,opacity){
  if(!p||opacity<.001)return;
  // Feather neighbouring photographic fragments, retaining original windows and roof details.
  const w=Math.ceil(tw*1.36),h=Math.ceil(th*1.38), padX=(w-tw)/2,padY=(h-th)/2;
- if(stamp.width!==w||stamp.height!==h){stamp.width=w;stamp.height=h}
+ if(!p.stamp){
+ const stamp=document.createElement('canvas');stamp.width=w;stamp.height=h;const st=stamp.getContext('2d');
  st.globalCompositeOperation='source-over';st.clearRect(0,0,w,h);
  const pw=Math.min(sw,sw/cols*1.36*p.scale),ph=Math.min(sh,sh/rows*1.38*p.scale);
  const px=clamp(sx+p.u*sw-pw*.5,sx,sx+sw-pw),py=clamp(sy+p.v*sh-ph*.5,sy,sy+sh-ph);
@@ -68,8 +69,8 @@ function paint(t,p,opacity){
  st.globalCompositeOperation='destination-in';
  let g=st.createLinearGradient(0,0,w,0);g.addColorStop(0,'transparent');g.addColorStop(.14,'black');g.addColorStop(.86,'black');g.addColorStop(1,'transparent');st.fillStyle=g;st.fillRect(0,0,w,h);
  g=st.createLinearGradient(0,0,0,h);g.addColorStop(0,'transparent');g.addColorStop(.16,'black');g.addColorStop(.84,'black');g.addColorStop(1,'transparent');st.fillStyle=g;st.fillRect(0,0,w,h);
- st.globalCompositeOperation='source-over';
- ctx.globalAlpha=opacity*.98;ctx.drawImage(stamp,t.x*tw-padX,t.y*th-padY);ctx.globalAlpha=1;
+ st.globalCompositeOperation='source-over';p.stamp=stamp;}
+ ctx.globalAlpha=opacity*.98;ctx.drawImage(p.stamp,t.x*tw-padX,t.y*th-padY);ctx.globalAlpha=1;
 }
 function draw(dt){
  if(!ready)return;
@@ -78,7 +79,7 @@ function draw(dt){
  ctx.drawImage(source,sx,sy,sw,sh,0,0,city.width,city.height);
  let count=0;
  for(const t of tiles){
- t.age+=dt;t.mix=Math.min(1,t.mix+dt/2.8);const a=t.mix*t.mix*(3-2*t.mix);
+ t.age+=dt;t.mix=Math.min(1,t.mix+dt/2.8);if(t.mix===1)t.from=t.to;const a=t.mix*t.mix*(3-2*t.mix);
  if(t.from!==t.to&&a<1)paint(t,t.from,1-a);
  paint(t,t.to,a);
  if(t.to)count++;
